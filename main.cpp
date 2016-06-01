@@ -61,19 +61,39 @@ void update_divider(uint8_t i) {
 	}
 }
 
+static const uint8_t f1 = 35;
+static const uint8_t f2 = 27;
+
 ISR(TIMER2_COMPA_vect) {
+	static uint8_t count =0;
 	if (mode == 0) {
-		CLEARBIT(DDRA, PA3);
+		CLEARBIT(TCCR0A, COM0B0);
+		CLEARBIT(PORTA, PA3);
 	} else if (mode == 1) {
-		SETBIT(DDRA, PA3);
-		if (OCR0A == 24) {
-			OCR0A = 18;
+		// toggle OC0B on compare
+		SETBIT(TCCR0A, COM0B0);
+		if (OCR0A == f2) {
+			OCR0A = f1;
 		} else {
-			OCR0A = 24;
+			OCR0A = f2;
 		}
 	} else if (mode == 2) {
-		OCR0A = 21;
-		TOGGLEBIT(DDRA, PA3);
+		CLEARBIT(TCCR0A, COM0B0);
+		if (count > 5) {
+			SETBIT(PORTA, PA3);
+			count = 0;
+		} else {
+			count++;
+			CLEARBIT(PORTA, PA3);
+		}
+	}
+}
+
+int16_t abs(int16_t v) {
+	if (v < 0) {
+		return -v;
+	} else {
+		return v;
 	}
 }
 
@@ -118,14 +138,12 @@ int main() {
 	// configure timer 0 to 50% pwm for speaker
 	// enable tocc2, it is by default set to OC0B
 	SETBIT(TOCPMCOE, TOCC2OE);
-	// toggle OC0B on compare
-	SETBIT(TCCR0A, COM0B0);
 	// clear timer on compare
 	SETBIT(TCCR0A, WGM01);
 	// init OCR0A
 	OCR0A = 100;
-	// enable and set prescaler to 256 (31250Hz)
-	TCCR0B = BIT(CS02);
+	// enable and set prescaler to 64 (speaker 62500Hz)
+	TCCR0B = BIT(CS01) | BIT(CS00);
 
 	// configure timer 2 for speaker toggle
 	// clear timer on compare
@@ -136,6 +154,9 @@ int main() {
 	OCR2A = 4096;
 	// enable and set prescaler to 1024 (7812.5Hz)
 	SETBITS(TCCR2B, BIT(CS20) | BIT(CS22));
+
+	// enable speaker pin
+	SETBIT(DDRA, PA3);
 
 	// configure adc
 	// set internal 4.096 reference
@@ -148,7 +169,7 @@ int main() {
 	PCMSK1 = 0b00000111;
 
 	// timer clear on compare, 100ms/16
-	TIMSK1 = 0b00000010;
+	//TIMSK1 = 0b00000010;
 	OCR1A = 49999;
 	TCCR1B = 0b00001001;
 
@@ -196,12 +217,21 @@ int main() {
 
 		if (battery < 756) {
 			mode = 2;
-
 		} else if (signal_value[0] > 30) {
 			mode = 1;
-			OCR2A = uint16_t(signal_value[0])<<7;
+			static int16_t old_value = -10;
+			int16_t new_value = signal_value[0];
+			if (abs(old_value-new_value) > 3) {
+				old_value = new_value;
+				OCR2A = new_value<<5;
+				//OCR2A = 1000;
+				TCNT2 = 0;
+			}
+
 		} else {
 			mode = 0;
 		}
 	}
 }
+
+
